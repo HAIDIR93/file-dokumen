@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAS DocVault - Penyimpanan Dokumen Apps Script</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81'
+                        },
+                        gas: {
+                            bg: '#0f172a',
+                            code: '#1e293b',
+                            accent: '#10b981'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(241, 245, 249, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .drag-active {
+            border-color: #4f46e5 !important;
+            background-color: #eef2ff !important;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+        }
+        .code-editor-line {
+            counter-increment: line;
+        }
+        .code-editor-line::before {
+            content: counter(line);
+            display: inline-block;
+            width: 2rem;
+            text-align: right;
+            margin-right: 1rem;
+            color: #64748b;
+            user-select: none;
+        }
+        @keyframes toastIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-toast {
+            animation: toastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="h-full text-slate-800 flex flex-col font-sans overflow-hidden bg-slate-50 selection:bg-indigo-500 selection:text-white">
+
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <header class="bg-white/90 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-4 md:px-6 z-30 shrink-0 shadow-sm">
+        <div class="flex items-center space-x-3">
+            <button id="sidebarToggle" class="md:hidden text-slate-500 hover:text-slate-800 p-2 rounded-xl hover:bg-slate-100 transition-colors">
+                <i class="fa-solid fa-bars text-lg"></i>
+            </button>
+            
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-blue-500 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+                    <i class="fa-solid fa-box-archive text-lg"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-lg text-slate-900 tracking-tight">GAS DocVault</span>
+                        <span class="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200">v2.5 Apps Script</span>
+                    </div>
+                    <p class="text-xs text-slate-400 hidden sm:block">Penyimpanan & Manajemen Kode Dokumen Drive</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 max-w-xl mx-4">
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                <input type="text" id="searchInput" placeholder="Cari skrip `.gs`, dokumen PDF, Sheet, Word..." 
+                       class="w-full pl-10 pr-9 py-2 bg-slate-100/80 hover:bg-slate-100 focus:bg-white text-sm rounded-xl border border-transparent focus:border-indigo-500 focus:outline-none transition-all duration-200 shadow-inner">
+                <button id="clearSearch" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-circle-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button id="btnShowBackendCode" class="flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border border-slate-200">
+                <i class="fa-solid fa-code text-indigo-600"></i>
+                <span class="hidden sm:inline">Backend Code.gs</span>
+            </button>
+            <button id="btnQuickUpload" class="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md shadow-indigo-200 transition-all active:scale-95">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <span class="hidden sm:inline">Unggah File</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <aside id="sidebar" class="absolute md:relative z-20 w-64 h-full bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 -translate-x-full md:translate-x-0 shadow-xl md:shadow-none">
+            
+            <!-- Create Action Dropdown Button -->
+            <div class="p-4 space-y-2">
+                <div class="relative">
+                    <button id="btnNewDropdown" class="w-full flex items-center justify-between bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-3 rounded-xl text-sm shadow-lg shadow-indigo-100 transition-all active:scale-[0.98]">
+                        <span class="flex items-center gap-2.5">
+                            <i class="fa-solid fa-circle-plus text-base"></i>
+                            <span>Tambah Baru</span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-xs opacity-75"></i>
+                    </button>
+
+                    <!-- Dropdown Content -->
+                    <div id="newMenu" class="hidden absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-1.5 z-30 space-y-1">
+                        <button id="menuUploadFile" class="w-full text-left px-3 py-2.5 hover:bg-indigo-50/70 rounded-xl flex items-center gap-3 text-slate-700 text-xs font-medium transition-colors">
+                            <div class="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <i class="fa-solid fa-file-arrow-up"></i>
+                            </div>
+                            <span>Unggah Dokumen</span>
+                        </button>
+                        <button id="menuCreateFolder" class="w-full text-left px-3 py-2.5 hover:bg-amber-50/70 rounded-xl flex items-center gap-3 text-slate-700 text-xs font-medium transition-colors">
+                            <div class="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+                                <i class="fa-solid fa-folder-plus"></i>
+                            </div>
+                            <span>Folder Baru</span>
+                        </button>
+                        <button id="menuCreateScript" class="w-full text-left px-3 py-2.5 hover:bg-emerald-50/70 rounded-xl flex items-center gap-3 text-slate-700 text-xs font-medium transition-colors">
+                            <div class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                <i class="fa-solid fa-code"></i>
+                            </div>
+                            <span>Skrip Apps Script (.gs)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 px-3 space-y-1 overflow-y-auto">
+                <a href="#" data-filter="all" class="nav-item active flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors">
+                    <i class="fa-solid fa-box-archive text-indigo-500 w-5 text-center"></i>
+                    <span>Semua Berkas</span>
+                </a>
+                <a href="#" data-filter="starred" class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <i class="fa-solid fa-star text-amber-400 w-5 text-center"></i>
+                    <span>Berbintang</span>
+                </a>
+                <a href="#" data-filter="recent" class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <i class="fa-solid fa-clock-rotate-left text-blue-500 w-5 text-center"></i>
+                    <span>Terbaru</span>
+                </a>
+                <a href="#" data-filter="trash" class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <i class="fa-solid fa-trash-can text-rose-500 w-5 text-center"></i>
+                    <span>Sampah</span>
+                </a>
+
+                <div class="pt-5 pb-2 px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Tipe Berkas Apps Script
+                </div>
+
+                <a href="#" data-type="gs" class="nav-item flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <span class="flex items-center space-x-2.5">
+                        <i class="fa-solid fa-file-code text-emerald-600 w-4"></i>
+                        <span>Apps Script (.gs)</span>
+                    </span>
+                    <span id="count-gs" class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-semibold">0</span>
+                </a>
+                <a href="#" data-type="pdf" class="nav-item flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <span class="flex items-center space-x-2.5">
+                        <i class="fa-solid fa-file-pdf text-rose-500 w-4"></i>
+                        <span>PDF Dokumen</span>
+                    </span>
+                    <span id="count-pdf" class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-semibold">0</span>
+                </a>
+                <a href="#" data-type="doc" class="nav-item flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <span class="flex items-center space-x-2.5">
+                        <i class="fa-solid fa-file-word text-blue-600 w-4"></i>
+                        <span>Word / Google Doc</span>
+                    </span>
+                    <span id="count-doc" class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-semibold">0</span>
+                </a>
+                <a href="#" data-type="sheet" class="nav-item flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    <span class="flex items-center space-x-2.5">
+                        <i class="fa-solid fa-file-excel text-teal-600 w-4"></i>
+                        <span>Excel / Sheet</span>
+                    </span>
+                    <span id="count-sheet" class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-semibold">0</span>
+                </a>
+            </nav>
+
+            <div class="p-4 m-3 bg-slate-50/80 rounded-2xl border border-slate-200">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-bold text-slate-700">Penyimpanan Drive</span>
+                    <i class="fa-brands fa-google-drive text-slate-400 text-xs"></i>
+                </div>
+                <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-1.5">
+                    <div id="storageBar" class="bg-indigo-600 h-full w-[15%] transition-all duration-500 rounded-full"></div>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                    <span id="usedStorageText">0 MB terpakai</span>
+                    <span>15 GB</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col bg-white overflow-hidden">
+            
+            <!-- Toolbar & Breadcrumb Bar -->
+            <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/40">
+                
+                <!-- Breadcrumbs Path -->
+                <div class="flex items-center space-x-2 text-xs font-medium text-slate-600" id="breadcrumbs">
+                    <button class="hover:text-indigo-600 flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200" onclick="navigateToFolder(null)">
+                        <i class="fa-solid fa-house text-slate-400"></i>
+                        <span>Drive Utama</span>
+                    </button>
+                    <span id="folderPath" class="flex items-center space-x-2"></span>
+                </div>
+
+                <!-- View Switchers and Sort Controls -->
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center bg-slate-200/60 p-0.5 rounded-xl border border-slate-200">
+                        <button id="viewGrid" title="Tampilan Grid" class="p-1.5 rounded-lg text-xs font-medium text-slate-800 bg-white shadow-sm transition-all">
+                            <i class="fa-solid fa-border-all"></i>
+                        </button>
+                        <button id="viewList" title="Tampilan Tabel" class="p-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 transition-all">
+                            <i class="fa-solid fa-list-ul"></i>
+                        </button>
+                    </div>
+
+                    <select id="sortBy" class="bg-white border border-slate-200 rounded-xl text-xs py-1.5 px-3 focus:outline-none focus:border-indigo-500 font-semibold text-slate-600">
+                        <option value="name">Urutkan: Nama</option>
+                        <option value="date" selected>Urutkan: Terbaru</option>
+                        <option value="size">Urutkan: Ukuran File</option>
+                    </select>
+
+                    <button id="btnEmptyTrash" class="hidden bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors border border-rose-200">
+                        <i class="fa-solid fa-trash-slash mr-1"></i> Kosongkan Sampah
+                    </button>
+                </div>
+            </div>
+
+            <!-- Drop Zone Container -->
+            <div id="dropZone" class="flex-1 overflow-y-auto p-4 sm:p-6 transition-all relative">
+                
+                <!-- Folders Grid Section -->
+                <div id="foldersSection" class="mb-6">
+                    <h3 class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Folder Dokumen</h3>
+                    <div id="foldersGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        <!-- Dynamically inserted folders -->
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3" id="filesHeader">Daftar Dokumen & Skrip</h3>
+                    
+                    <!-- Grid View Container -->
+                    <div id="filesGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                        <!-- Dynamically inserted file cards -->
+                    </div>
+
+                    <!-- List View Container -->
+                    <div id="filesList" class="hidden bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase font-bold text-[10px] tracking-wider">
+                                <tr>
+                                    <th class="py-3 px-4">Nama Dokumen</th>
+                                    <th class="py-3 px-4">Format File</th>
+                                    <th class="py-3 px-4">Ukuran</th>
+                                    <th class="py-3 px-4">Tanggal Diubah</th>
+                                    <th class="py-3 px-4 text-right">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="filesListBody" class="divide-y divide-slate-100">
+                                <!-- Dynamically inserted table rows -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Empty State Container -->
+                    <div id="emptyState" class="hidden flex-col items-center justify-center py-20 text-center">
+                        <div class="w-20 h-20 bg-indigo-50 text-indigo-400 rounded-3xl flex items-center justify-center text-3xl mb-4 border border-indigo-100">
+                            <i class="fa-solid fa-folder-open"></i>
+                        </div>
+                        <h4 class="text-base font-bold text-slate-800">Tidak ada dokumen di sini</h4>
+                        <p class="text-xs text-slate-400 max-w-sm mt-1">Unggah file baru atau buat skrip Apps Script untuk menyimpannya di direktori ini.</p>
+                        <button onclick="openUploadModal()" class="mt-5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shadow-md shadow-indigo-100">
+                            <i class="fa-solid fa-cloud-arrow-up mr-1.5"></i> Unggah Dokumen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="uploadModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl transition-all border border-slate-100">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-up text-indigo-600"></i>
+                    Unggah File Dokumen
+                </h3>
+                <button onclick="closeModal('uploadModal')" class="text-slate-400 hover:text-slate-700 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Upload Drop Zone -->
+            <div id="modalDropZone" class="border-2 border-dashed border-indigo-200 hover:border-indigo-500 bg-indigo-50/40 rounded-2xl p-8 text-center cursor-pointer transition-all">
+                <input type="file" id="fileInput" class="hidden" multiple>
+                <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-xl shadow-inner">
+                    <i class="fa-solid fa-file-arrow-up"></i>
+                </div>
+                <p class="text-xs font-bold text-slate-700">Klik untuk memilih file atau tarik file ke sini</p>
+                <p class="text-[11px] text-slate-400 mt-1">Format didukung: `.gs`, `.js`, `.pdf`, `.docx`, `.xlsx`, `.txt`, Gambar</p>
+            </div>
+
+            <div id="selectedFilesContainer" class="mt-4 max-h-40 overflow-y-auto space-y-2"></div>
+
+            <div class="mt-6 flex justify-end space-x-2">
+                <button onclick="closeModal('uploadModal')" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Batal</button>
+                <button id="btnSubmitUpload" class="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all">Mulai Unggah</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="folderModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100">
+            <h3 class="font-bold text-slate-900 text-base mb-1">Buat Folder Baru</h3>
+            <p class="text-xs text-slate-400 mb-4">Masukkan nama folder untuk mengelompokkan dokumen.</p>
+            <input type="text" id="folderNameInput" placeholder="Contoh: Skrip Otomasi Laporan" class="w-full px-3.5 py-2.5 bg-slate-100 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 text-xs mb-5 font-medium">
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeModal('folderModal')" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Batal</button>
+                <button id="btnConfirmFolder" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-100">Buat Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="scriptModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 text-slate-200 rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-800 flex flex-col max-h-[85vh]">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-code"></i>
+                    </div>
+                    <h3 class="font-bold text-white text-sm">Buat Skrip Apps Script Baru (.gs)</h3>
+                </div>
+                <button onclick="closeModal('scriptModal')" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-slate-400 mb-4">Skrip `.gs` dapat langsung diedit dan dieksekusi di lingkungan Google Apps Script.</p>
+            
+            <input type="text" id="scriptNameInput" placeholder="Contoh: AutoEmailSender.gs" class="w-full px-3.5 py-2.5 bg-slate-800/80 rounded-xl border border-slate-700 text-emerald-400 font-mono text-xs focus:outline-none focus:border-emerald-500 mb-3">
+            
+            <textarea id="scriptContentInput" rows="10" placeholder="// Tulis kode Apps Script di sini...
+function main() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('Menjalankan skrip otomatisasi...');
+}" class="w-full p-4 bg-slate-950 font-mono text-xs text-emerald-300 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 resize-none flex-1 leading-relaxed"></textarea>
+
+            <div class="flex justify-between items-center mt-4 pt-3 border-t border-slate-800">
+                <span class="text-[11px] text-slate-500 font-mono">Format: JavaScript / Google Apps Script</span>
+                <div class="flex space-x-2">
+                    <button onclick="closeModal('scriptModal')" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:bg-slate-800">Batal</button>
+                    <button id="btnConfirmScript" class="px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-950">Simpan Skrip .gs</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="fileDetailModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-slate-100">
+            
+            <!-- Header Modal -->
+            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <span id="previewFileIcon" class="text-xl"></span>
+                    <div>
+                        <h3 id="previewFileName" class="font-bold text-slate-900 text-sm truncate"></h3>
+                        <p id="previewFileType" class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider"></p>
+                    </div>
+                </div>
+                <button onclick="closeModal('fileDetailModal')" class="text-slate-400 hover:text-slate-700 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="p-6 overflow-y-auto flex-1 space-y-4">
+                <div id="previewContainer" class="bg-slate-50 rounded-2xl p-4 min-h-[220px] flex items-center justify-center border border-slate-200/80">
+                    <!-- Dynamic preview content -->
+                </div>
+
+                <!-- Info Grid -->
+                <div class="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80 text-xs">
+                    <div>
+                        <span class="text-slate-400 block text-[10px] uppercase font-bold">Ukuran Berkas</span>
+                        <span id="previewFileSize" class="font-semibold text-slate-800"></span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 block text-[10px] uppercase font-bold">Terakhir Diubah</span>
+                        <span id="previewFileDate" class="font-semibold text-slate-800"></span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 block text-[10px] uppercase font-bold">Status Favorit</span>
+                        <span id="previewFileStatus" class="font-semibold text-amber-500"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Action Controls -->
+            <div class="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <button id="btnDeleteCurrentFile" class="text-rose-600 hover:bg-rose-50 px-3 py-2 rounded-xl text-xs font-semibold transition-colors border border-rose-200">
+                    <i class="fa-solid fa-trash mr-1"></i> Hapus File
+                </button>
+                <div class="flex space-x-2">
+                    <button id="btnStarCurrentFile" class="bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors">
+                        <i class="fa-regular fa-star mr-1"></i> Beri Bintang
+                    </button>
+                    <button id="btnDownloadCurrentFile" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition-colors">
+                        <i class="fa-solid fa-download mr-1"></i> Unduh File
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="backendCodeModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 text-slate-200 rounded-3xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-800">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+                    <span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+                    <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+                    <span class="ml-2 font-mono text-xs text-slate-400">Code.gs (Backend Google Apps Script Standar)</span>
+                </div>
+                <button onclick="closeModal('backendCodeModal')" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-5 bg-slate-950 flex-1 overflow-y-auto font-mono text-xs text-indigo-300 leading-relaxed border-b border-slate-800">
+                <pre id="codeSnippet" class="whitespace-pre-wrap">// ============================================================
+// BACKEND GOOGLE APPS SCRIPT (Code.gs)
+// Pasang kode ini pada Apps Script Editor (script.google.com)
+// untuk menghubungkan UI ini ke Google Drive asli milik Anda.
+// ============================================================
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('GAS DocVault - Drive Storage Web App')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Memuat daftar seluruh berkas dari Google Drive
+function getDriveFiles(folderId) {
+  try {
+    var folder = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+    var files = folder.getFiles();
+    var list = [];
+
+    while (files.hasNext()) {
+      var f = files.next();
+      list.push({
+        id: f.getId(),
+        name: f.getName(),
+        size: formatBytes(f.getSize()),
+        mimeType: f.getMimeType(),
+        url: f.getUrl(),
+        dateUpdated: Utilities.formatDate(f.getLastUpdated(), Session.getScriptTimeZone(), "yyyy-MM-dd")
+      });
+    }
+    return JSON.stringify({ success: true, data: list });
+  } catch (err) {
+    return JSON.stringify({ success: false, error: err.toString() });
+  }
+}
+
+// Mengunggah file baru berformat Base64 ke Google Drive
+function uploadFileToDrive(base64Data, fileName, mimeType, targetFolderId) {
+  try {
+    var folder = targetFolderId ? DriveApp.getFolderById(targetFolderId) : DriveApp.getRootFolder();
+    var bytes = Utilities.base64Decode(base64Data.split(',')[1]);
+    var blob = Utilities.newBlob(bytes, mimeType, fileName);
+    var newFile = folder.createFile(blob);
+    
+    return {
+      success: true,
+      fileId: newFile.getId(),
+      fileUrl: newFile.getUrl()
+    };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  var k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  var i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}</pre>
+            </div>
+
+            <div class="p-4 bg-slate-900 flex justify-between items-center text-xs">
+                <p class="text-slate-400">Salin skrip ini ke proyek Apps Script Anda untuk Web Deployment.</p>
+                <button id="btnCopyCode" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-copy"></i>
+                    <span>Salin Kode Backend</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initial Application State
+        let appState = {
+            currentFilter: 'all',
+            currentFileType: null,
+            currentFolderId: null,
+            viewMode: 'grid',
+            searchQuery: '',
+            selectedFileId: null,
+            files: [
+                {
+                    id: 'doc_1',
+                    name: 'AutoSpreadsheetBackup.gs',
+                    type: 'gs',
+                    mime: 'text/javascript',
+                    size: '12.4 KB',
+                    rawSize: 12400,
+                    folderId: null,
+                    starred: true,
+                    trashed: false,
+                    date: '2026-09-28',
+                    content: `// Google Apps Script Auto Backup\nfunction backupData() {\n  var ss = SpreadsheetApp.getActiveSpreadsheet();\n  var sheet = ss.getActiveSheet();\n  Logger.log("Mencadangkan baris data: " + sheet.getLastRow());\n}`
+                },
+                {
+                    id: 'doc_2',
+                    name: 'Laporan_Keuangan_Q3_2026.xlsx',
+                    type: 'sheet',
+                    mime: 'application/vnd.ms-excel',
+                    size: '2.4 MB',
+                    rawSize: 2400000,
+                    folderId: null,
+                    starred: false,
+                    trashed: false,
+                    date: '2026-09-27',
+                    content: 'Lembar Kerja Laporan Keuangan Kuartal 3 Tahun 2026.'
+                },
+                {
+                    id: 'doc_3',
+                    name: 'Dokumentasi_API_AppsScript.pdf',
+                    type: 'pdf',
+                    mime: 'application/pdf',
+                    size: '4.1 MB',
+                    rawSize: 4100000,
+                    folderId: null,
+                    starred: true,
+                    trashed: false,
+                    date: '2026-09-24',
+                    content: 'Dokumen Spesifikasi & Panduan API Google Apps Script.'
+                },
+                {
+                    id: 'doc_4',
+                    name: 'Spesifikasi_Proyek_Sistem.docx',
+                    type: 'doc',
+                    mime: 'application/msword',
+                    size: '780 KB',
+                    rawSize: 780000,
+                    folderId: 'folder_1',
+                    starred: false,
+                    trashed: false,
+                    date: '2026-09-22',
+                    content: 'Spesifikasi Kebutuhan Perangkat Lunak Manajemen Dokumen Drive.'
+                },
+                {
+                    id: 'doc_5',
+                    name: 'TelegramBotWebhook.gs',
+                    type: 'gs',
+                    mime: 'text/javascript',
+                    size: '18.2 KB',
+                    rawSize: 18200,
+                    folderId: 'folder_1',
+                    starred: false,
+                    trashed: false,
+                    date: '2026-09-29',
+                    content: `function doPost(e) {\n  var data = JSON.parse(e.postData.contents);\n  var chatId = data.message.chat.id;\n  UrlFetchApp.fetch("https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=" + chatId + "&text=Ping!");\n}`
+                }
+            ],
+            folders: [
+                { id: 'folder_1', name: 'Skrip Otomasi Apps Script', parentId: null, trashed: false },
+                { id: 'folder_2', name: 'Dokumen Kontrak & Laporan', parentId: null, trashed: false }
+            ]
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSavedState();
+            renderStorageUsage();
+            renderCategoryCounts();
+            renderFilesAndFolders();
+            setupEventListeners();
+        });
+
+        function saveState() {
+            try {
+                localStorage.setItem('gas_docvault_state', JSON.stringify({
+                    files: appState.files,
+                    folders: appState.folders
+                }));
+            } catch (e) {
+                console.warn('LocalStorage error:', e);
+            }
+        }
+
+        function loadSavedState() {
+            try {
+                const saved = localStorage.getItem('gas_docvault_state');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.files) appState.files = parsed.files;
+                    if (parsed.folders) appState.folders = parsed.folders;
+                }
+            } catch (e) {
+                console.warn('Failed loading saved state:', e);
+            }
+        }
+
+        function renderFilesAndFolders() {
+            const foldersGrid = document.getElementById('foldersGrid');
+            const filesGrid = document.getElementById('filesGrid');
+            const filesListBody = document.getElementById('filesListBody');
+            const emptyState = document.getElementById('emptyState');
+            const foldersSection = document.getElementById('foldersSection');
+
+            // Filter Folders
+            let filteredFolders = appState.folders.filter(f => {
+                if (appState.currentFilter === 'trash') return f.trashed;
+                if (f.trashed) return false;
+                if (appState.currentFilter === 'starred' || appState.currentFileType) return false;
+                return f.parentId === appState.currentFolderId;
+            });
+
+            // Filter Files
+            let filteredFiles = appState.files.filter(f => {
+                if (appState.currentFilter === 'trash') return f.trashed;
+                if (f.trashed) return false;
+
+                if (appState.currentFilter === 'starred' && !f.starred) return false;
+                if (appState.currentFileType && f.type !== appState.currentFileType) return false;
+
+                if (!appState.searchQuery && appState.currentFilter === 'all' && !appState.currentFileType) {
+                    if (f.folderId !== appState.currentFolderId) return false;
+                }
+
+                if (appState.searchQuery) {
+                    return f.name.toLowerCase().includes(appState.searchQuery.toLowerCase());
+                }
+
+                return true;
+            });
+
+            // Sort Files
+            const sortBy = document.getElementById('sortBy').value;
+            filteredFiles.sort((a, b) => {
+                if (sortBy === 'name') return a.name.localeCompare(b.name);
+                if (sortBy === 'size') return b.rawSize - a.rawSize;
+                return new Date(b.date) - new Date(a.date);
+            });
+
+            // Toggle Section Visibilities
+            foldersSection.style.display = (filteredFolders.length > 0 && !appState.searchQuery) ? 'block' : 'none';
+
+            if (filteredFiles.length === 0 && filteredFolders.length === 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+                filesGrid.classList.add('hidden');
+                filesListBody.parentElement.parentElement.classList.add('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+                emptyState.classList.remove('flex');
+            }
+
+            foldersGrid.innerHTML = filteredFolders.map(folder => `
+                <div onclick="navigateToFolder('${folder.id}')" class="group bg-slate-50 hover:bg-indigo-50/70 border border-slate-200/90 hover:border-indigo-200 rounded-2xl p-3 flex items-center justify-between cursor-pointer transition-all shadow-sm">
+                    <div class="flex items-center space-x-2.5 overflow-hidden">
+                        <div class="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-folder"></i>
+                        </div>
+                        <span class="text-xs font-semibold text-slate-700 truncate">${folder.name}</span>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteFolder('${folder.id}')" class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            if (appState.viewMode === 'grid') {
+                filesGrid.classList.remove('hidden');
+                document.getElementById('filesList').classList.add('hidden');
+
+                filesGrid.innerHTML = filteredFiles.map(file => `
+                    <div onclick="openFileDetails('${file.id}')" class="group bg-white border border-slate-200 hover:border-indigo-300 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col justify-between relative">
+                        <div>
+                            <div class="flex items-start justify-between mb-3">
+                                <div class="w-10 h-10 rounded-xl ${getFileBgColor(file.type)} flex items-center justify-center text-lg">
+                                    ${getFileIcon(file.type)}
+                                </div>
+                                <button onclick="event.stopPropagation(); toggleStar('${file.id}')" class="text-slate-300 hover:text-amber-400 p-1 ${file.starred ? 'text-amber-400' : ''}">
+                                    <i class="fa-${file.starred ? 'solid' : 'regular'} fa-star"></i>
+                                </button>
+                            </div>
+                            <h4 class="font-bold text-slate-800 text-xs truncate mb-1" title="${file.name}">${file.name}</h4>
+                            <p class="text-[11px] text-slate-400">${file.size}</p>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                            <span>${file.date}</span>
+                            <span class="uppercase font-bold text-[9px] bg-slate-100 px-2 py-0.5 rounded-md text-slate-500">${file.type}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                filesGrid.classList.add('hidden');
+                document.getElementById('filesList').classList.remove('hidden');
+
+                filesListBody.innerHTML = filteredFiles.map(file => `
+                    <tr onclick="openFileDetails('${file.id}')" class="hover:bg-slate-50 cursor-pointer transition-colors">
+                        <td class="py-3 px-4 flex items-center space-x-3">
+                            <span class="text-base">${getFileIcon(file.type)}</span>
+                            <span class="font-semibold text-slate-700 truncate max-w-xs">${file.name}</span>
+                        </td>
+                        <td class="py-3 px-4 uppercase text-[10px] font-bold text-slate-400">${file.type}</td>
+                        <td class="py-3 px-4 text-xs text-slate-500">${file.size}</td>
+                        <td class="py-3 px-4 text-xs text-slate-400">${file.date}</td>
+                        <td class="py-3 px-4 text-right">
+                            <button onclick="event.stopPropagation(); toggleStar('${file.id}')" class="text-slate-300 hover:text-amber-400 p-1 ${file.starred ? 'text-amber-400' : ''}">
+                                <i class="fa-${file.starred ? 'solid' : 'regular'} fa-star"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function getFileIcon(type) {
+            switch (type) {
+                case 'gs': return '<i class="fa-solid fa-code text-emerald-600"></i>';
+                case 'pdf': return '<i class="fa-solid fa-file-pdf text-rose-500"></i>';
+                case 'sheet': return '<i class="fa-solid fa-file-excel text-teal-600"></i>';
+                case 'doc': return '<i class="fa-solid fa-file-word text-blue-600"></i>';
+                default: return '<i class="fa-solid fa-file text-slate-400"></i>';
+            }
+        }
+
+        function getFileBgColor(type) {
+            switch (type) {
+                case 'gs': return 'bg-emerald-50';
+                case 'pdf': return 'bg-rose-50';
+                case 'sheet': return 'bg-teal-50';
+                case 'doc': return 'bg-blue-50';
+                default: return 'bg-slate-50';
+            }
+        }
+
+        function renderCategoryCounts() {
+            const counts = { gs: 0, pdf: 0, doc: 0, sheet: 0 };
+            appState.files.filter(f => !f.trashed).forEach(f => {
+                if (counts[f.type] !== undefined) counts[f.type]++;
+            });
+            document.getElementById('count-gs').innerText = counts.gs;
+            document.getElementById('count-pdf').innerText = counts.pdf;
+            document.getElementById('count-doc').innerText = counts.doc;
+            document.getElementById('count-sheet').innerText = counts.sheet;
+        }
+
+        function renderStorageUsage() {
+            const totalBytes = appState.files.filter(f => !f.trashed).reduce((acc, curr) => acc + (curr.rawSize || 0), 0);
+            const mb = (totalBytes / (1024 * 1024)).toFixed(2);
+            document.getElementById('usedStorageText').innerText = `${mb} MB terpakai`;
+            
+            const pct = Math.min(100, Math.max(3, (totalBytes / (15 * 1024 * 1024 * 1024)) * 100 * 1000));
+            document.getElementById('storageBar').style.width = `${pct}%`;
+        }
+
+        function navigateToFolder(folderId) {
+            appState.currentFolderId = folderId;
+            appState.currentFileType = null;
+            appState.currentFilter = 'all';
+
+            const breadcrumbPath = document.getElementById('folderPath');
+            if (folderId) {
+                const folder = appState.folders.find(f => f.id === folderId);
+                breadcrumbPath.innerHTML = `
+                    <i class="fa-solid fa-chevron-right text-[10px] text-slate-300"></i>
+                    <span class="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">${folder ? folder.name : ''}</span>
+                `;
+            } else {
+                breadcrumbPath.innerHTML = '';
+            }
+            renderFilesAndFolders();
+        }
+
+        function toggleStar(fileId) {
+            const file = appState.files.find(f => f.id === fileId);
+            if (file) {
+                file.starred = !file.starred;
+                saveState();
+                renderFilesAndFolders();
+                showToast(file.starred ? 'Ditambahkan ke Favorit' : 'Dihapus dari Favorit', 'info');
+            }
+        }
+
+        function openFileDetails(fileId) {
+            appState.selectedFileId = fileId;
+            const file = appState.files.find(f => f.id === fileId);
+            if (!file) return;
+
+            document.getElementById('previewFileName').innerText = file.name;
+            document.getElementById('previewFileSize').innerText = file.size;
+            document.getElementById('previewFileType').innerText = file.type.toUpperCase() + ' Document';
+            document.getElementById('previewFileDate').innerText = file.date;
+            document.getElementById('previewFileStatus').innerText = file.starred ? 'Ya (Favorit)' : 'Tidak';
+            document.getElementById('previewFileIcon').innerHTML = getFileIcon(file.type);
+
+            const previewContainer = document.getElementById('previewContainer');
+            if (file.type === 'gs') {
+                previewContainer.innerHTML = `
+                    <div class="w-full text-left">
+                        <div class="flex items-center justify-between text-slate-400 font-mono text-[10px] mb-2 px-1">
+                            <span>Apps Script Source Code</span>
+                            <button onclick="copyFileCode('${file.id}')" class="hover:text-emerald-400"><i class="fa-solid fa-copy mr-1"></i>Salin Kode</button>
+                        </div>
+                        <pre class="w-full font-mono text-xs bg-slate-900 text-emerald-400 p-4 rounded-xl overflow-x-auto max-h-60 border border-slate-800"><code>${escapeHtml(file.content || '')}</code></pre>
+                    </div>
+                `;
+            } else {
+                previewContainer.innerHTML = `
+                    <div class="text-center p-6 text-slate-500">
+                        <i class="fa-solid fa-file-lines text-5xl mb-3 text-slate-300"></i>
+                        <p class="text-xs font-semibold text-slate-700">${file.name}</p>
+                        <p class="text-[11px] text-slate-400 mt-1">${file.content || 'Pratinjau berkas tersedia saat terhubung ke Google Drive API.'}</p>
+                    </div>
+                `;
+            }
+
+            openModal('fileDetailModal');
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        function copyFileCode(fileId) {
+            const file = appState.files.find(f => f.id === fileId);
+            if (file && file.content) {
+                navigator.clipboard.writeText(file.content);
+                showToast('Kode Apps Script berhasil disalin!', 'success');
+            }
+        }
+
+        function setupEventListeners() {
+            // Sidebar Mobile Toggle
+            document.getElementById('sidebarToggle').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.toggle('-translate-x-full');
+            });
+
+            // New Menu Dropdown Toggle
+            const btnNewDropdown = document.getElementById('btnNewDropdown');
+            const newMenu = document.getElementById('newMenu');
+            btnNewDropdown.addEventListener('click', (e) => {
+                e.stopPropagation();
+                newMenu.classList.toggle('hidden');
+            });
+            document.addEventListener('click', () => newMenu.classList.add('hidden'));
+
+            // Sidebar Navigation Item Click
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('bg-indigo-50', 'text-indigo-600', 'font-bold'));
+                    item.classList.add('bg-indigo-50', 'text-indigo-600', 'font-bold');
+
+                    const filter = item.dataset.filter;
+                    const type = item.dataset.type;
+
+                    if (filter) {
+                        appState.currentFilter = filter;
+                        appState.currentFileType = null;
+                        document.getElementById('btnEmptyTrash').style.display = (filter === 'trash') ? 'inline-flex' : 'none';
+                    } else if (type) {
+                        appState.currentFileType = type;
+                        appState.currentFilter = 'all';
+                    }
+
+                    renderFilesAndFolders();
+                });
+            });
+
+            // Search Bar Input Filter
+            const searchInput = document.getElementById('searchInput');
+            const clearSearch = document.getElementById('clearSearch');
+
+            searchInput.addEventListener('input', (e) => {
+                appState.searchQuery = e.target.value.trim();
+                clearSearch.classList.toggle('hidden', appState.searchQuery === '');
+                renderFilesAndFolders();
+            });
+
+            clearSearch.addEventListener('click', () => {
+                searchInput.value = '';
+                appState.searchQuery = '';
+                clearSearch.classList.add('hidden');
+                renderFilesAndFolders();
+            });
+
+            // Sort Selector Handler
+            document.getElementById('sortBy').addEventListener('change', renderFilesAndFolders);
+
+            // View Toggle Buttons
+            document.getElementById('viewGrid').addEventListener('click', function() {
+                appState.viewMode = 'grid';
+                this.classList.add('bg-white', 'shadow-sm', 'text-slate-800');
+                document.getElementById('viewList').classList.remove('bg-white', 'shadow-sm', 'text-slate-800');
+                renderFilesAndFolders();
+            });
+
+            document.getElementById('viewList').addEventListener('click', function() {
+                appState.viewMode = 'list';
+                this.classList.add('bg-white', 'shadow-sm', 'text-slate-800');
+                document.getElementById('viewGrid').classList.remove('bg-white', 'shadow-sm', 'text-slate-800');
+                renderFilesAndFolders();
+            });
+
+            // Action Triggers
+            document.getElementById('btnQuickUpload').addEventListener('click', openUploadModal);
+            document.getElementById('menuUploadFile').addEventListener('click', openUploadModal);
+            document.getElementById('menuCreateFolder').addEventListener('click', () => openModal('folderModal'));
+            document.getElementById('menuCreateScript').addEventListener('click', () => openModal('scriptModal'));
+            document.getElementById('btnShowBackendCode').addEventListener('click', () => openModal('backendCodeModal'));
+
+            // Modal Action Handlers
+            document.getElementById('btnConfirmFolder').addEventListener('click', createNewFolder);
+            document.getElementById('btnConfirmScript').addEventListener('click', createNewScript);
+            document.getElementById('btnSubmitUpload').addEventListener('click', handleUploadSubmit);
+            document.getElementById('btnDeleteCurrentFile').addEventListener('click', deleteCurrentFile);
+            document.getElementById('btnCopyCode').addEventListener('click', copyBackendCode);
+
+            // Drag & Drop Upload Handlers
+            const dropZone = document.getElementById('dropZone');
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-active'); });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-active');
+                if (e.dataTransfer.files.length > 0) {
+                    processUploadedFiles(e.dataTransfer.files);
+                    openUploadModal();
+                }
+            });
+
+            const fileInput = document.getElementById('fileInput');
+            document.getElementById('modalDropZone').addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => processUploadedFiles(e.target.files));
+        }
+
+        let pendingUploadFiles = [];
+        function openUploadModal() {
+            document.getElementById('selectedFilesContainer').innerHTML = '';
+            pendingUploadFiles = [];
+            openModal('uploadModal');
+        }
+
+        function processUploadedFiles(files) {
+            pendingUploadFiles = Array.from(files);
+            const container = document.getElementById('selectedFilesContainer');
+            container.innerHTML = pendingUploadFiles.map(f => `
+                <div class="flex items-center justify-between bg-slate-100 p-2.5 rounded-xl text-xs border border-slate-200">
+                    <span class="truncate max-w-[200px] font-semibold text-slate-700">${f.name}</span>
+                    <span class="text-slate-400 font-mono text-[11px]">${(f.size / 1024).toFixed(1)} KB</span>
+                </div>
+            `).join('');
+        }
+
+        function handleUploadSubmit() {
+            if (pendingUploadFiles.length === 0) {
+                showToast('Pilih setidaknya satu file untuk diunggah', 'error');
+                return;
+            }
+
+            pendingUploadFiles.forEach(f => {
+                const ext = f.name.split('.').pop().toLowerCase();
+                let type = 'doc';
+                if (ext === 'gs' || ext === 'js') type = 'gs';
+                else if (ext === 'pdf') type = 'pdf';
+                else if (['xlsx', 'xls', 'csv'].includes(ext)) type = 'sheet';
+
+                appState.files.unshift({
+                    id: 'doc_' + Date.now() + Math.random().toString(36).substr(2, 4),
+                    name: f.name,
+                    type: type,
+                    mime: f.type || 'application/octet-stream',
+                    size: (f.size / 1024).toFixed(1) + ' KB',
+                    rawSize: f.size,
+                    folderId: appState.currentFolderId,
+                    starred: false,
+                    trashed: false,
+                    date: new Date().toISOString().split('T')[0],
+                    content: 'Dokumen diunggah ke memori lokal.'
+                });
+            });
+
+            pendingUploadFiles = [];
+            saveState();
+            closeModal('uploadModal');
+            renderCategoryCounts();
+            renderStorageUsage();
+            renderFilesAndFolders();
+            showToast('File dokumen berhasil diunggah!', 'success');
+        }
+
+        function createNewFolder() {
+            const input = document.getElementById('folderNameInput');
+            const name = input.value.trim();
+            if (!name) return;
+
+            appState.folders.push({
+                id: 'folder_' + Date.now(),
+                name: name,
+                parentId: appState.currentFolderId,
+                trashed: false
+            });
+
+            input.value = '';
+            saveState();
+            closeModal('folderModal');
+            renderFilesAndFolders();
+            showToast('Folder baru berhasil dibuat', 'success');
+        }
+
+        function createNewScript() {
+            const nameInput = document.getElementById('scriptNameInput');
+            const contentInput = document.getElementById('scriptContentInput');
+
+            let name = nameInput.value.trim();
+            if (!name) name = 'Script_' + Math.floor(Math.random() * 1000) + '.gs';
+            if (!name.endsWith('.gs')) name += '.gs';
+
+            appState.files.unshift({
+                id: 'doc_' + Date.now(),
+                name: name,
+                type: 'gs',
+                mime: 'text/javascript',
+                size: '1.8 KB',
+                rawSize: 1800,
+                folderId: appState.currentFolderId,
+                starred: false,
+                trashed: false,
+                date: new Date().toISOString().split('T')[0],
+                content: contentInput.value || '// Empty Apps Script'
+            });
+
+            nameInput.value = '';
+            saveState();
+            closeModal('scriptModal');
+            renderCategoryCounts();
+            renderStorageUsage();
+            renderFilesAndFolders();
+            showToast('Skrip Apps Script baru disimpan!', 'success');
+        }
+
+        function deleteCurrentFile() {
+            if (!appState.selectedFileId) return;
+            const file = appState.files.find(f => f.id === appState.selectedFileId);
+            if (file) {
+                file.trashed = true;
+                saveState();
+                closeModal('fileDetailModal');
+                renderCategoryCounts();
+                renderStorageUsage();
+                renderFilesAndFolders();
+                showToast('File dipindahkan ke sampah', 'info');
+            }
+        }
+
+        function deleteFolder(folderId) {
+            const folder = appState.folders.find(f => f.id === folderId);
+            if (folder) {
+                folder.trashed = true;
+                saveState();
+                renderFilesAndFolders();
+                showToast('Folder dipindahkan ke sampah', 'info');
+            }
+        }
+
+        function copyBackendCode() {
+            const codeText = document.getElementById('codeSnippet').innerText;
+            navigator.clipboard.writeText(codeText).then(() => {
+                showToast('Skrip backend Code.gs berhasil disalin!', 'success');
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            let bg = 'bg-slate-900 text-white';
+            let icon = 'fa-circle-info text-blue-400';
+            
+            if (type === 'success') {
+                bg = 'bg-slate-900 text-white';
+                icon = 'fa-circle-check text-emerald-400';
+            } else if (type === 'error') {
+                bg = 'bg-rose-900 text-white';
+                icon = 'fa-circle-exclamation text-rose-300';
+            }
+
+            toast.className = `pointer-events-auto flex items-center space-x-3 px-4 py-3 rounded-2xl ${bg} shadow-2xl text-xs font-semibold animate-toast border border-white/10`;
+            toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Modal Helpers
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
+</body>
+</html>
